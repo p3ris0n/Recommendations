@@ -1,0 +1,13 @@
+# Virtual environments
+surprise_env/
+venv/
+env/
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+
+# Other common exclusions
+*.log
+.pytest_cache/
+.mypy_cache/
