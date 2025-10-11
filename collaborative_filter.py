@@ -1,4 +1,5 @@
 import kagglehub
+import json
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
@@ -275,6 +276,14 @@ def calc_recommendation_diversity(all_recommendations):
             item_counts[item] = item_counts.get(item, 0) + 1
             total_recommendations += 1
 
+    if len(item_counts) == 0: # handles cases where no recommendations were made.
+        return {
+            'entropy': 0,
+            'normalized_entropy': 0,
+            'unique_items_recommend': 0,
+            'gini_coefficient': 0
+        }
+
     entropy = 0
     for count in item_counts.values():
         probability = count / total_recommendations
@@ -302,8 +311,15 @@ def calc_gini(counts):
     """
     counts = np.array(sorted(counts))
     n = len(counts)
-    index = np.array(1, n + 1)
-    return (2 * np.sum(index * counts)) / (n * np.sum(counts)) - (n - 1) / n
+    index = np.arange(1, n + 1)
+    # return (2 * np.sum(index * counts)) / (n * np.sum(counts)) - (n - 1) / n
+    numerator = 2 * np.sum(index * counts)
+    denominator = n * np.sum(counts)
+
+    if denominator == 0:
+        return 0.0
+    
+    return (numerator / denominator) - (n + 1) / n
 
 def calc_catalog_coverage(all_recommendations, total_available_itmes):
     recommended_items = set()
@@ -317,3 +333,175 @@ def calc_catalog_coverage(all_recommendations, total_available_itmes):
         'items_recommeded': len(recommended_items),
         'items_never_recommended': len(total_available_itmes) - len(recommended_items)
     }
+
+# Actionable Reports
+def generate_eval_report(model, trainset, train_data, test_data, available_items):
+    # generates a comprehensive eval report with interpretations.
+
+    evaluator = RecommenderEvaluator(k_values=[5, 10, 20])
+    print("=" * 60)
+    print("EVALUATION REPORT")
+    print("=" * 60)
+    print()
+
+    metrics = evaluator.evaluate(trainset, model, test_data)
+
+    print("Accuracy Metrics: ")
+    print("-" * 60)
+    for metric_name, value in sorted(metrics.items()):
+        print(f"{metric_name}: {value:.4f}")
+
+        # adding interpolations.
+        if 'precision' in metric_name and value < 0.05:
+            print(" Low precision - many recommendations aren't relevant.")
+        if 'recall' in metric_name and value < 0.10:
+            print(" Low recall - many relevant items are being missed.")
+
+    print()
+
+    test_users = test_data['user_id'].unique()
+    all_recommendations = []
+
+    for user in test_users:
+        try:
+            recs = model.predict(user, n_recommnedations=20)
+            all_recommendations.append(recs)
+        except:
+            continue
+
+    
+    # calculating diversity metrics
+    print("Diversity Metrics: ")
+    print("-" * 60)
+    diversity_metrics  = calc_recommendation_diversity(all_recommendations)
+
+    print(f"normalized entropy: {diversity_metrics['normalized_entropy']:.4f}")
+
+    if diversity_metrics['normalized_entropy'] < 0.5:
+        print("Low diversity - recommendations are too similar or concentrated")
+        print("Consider: - Adding more diverse items to the catalog")
+
+    print(f"Gini coefficient: {diversity_metrics['gini_coefficient']:.4f}")
+
+    if diversity_metrics['gini_coefficient'] > 0.7:
+        print("High inequality - a few items dominate recommendations")
+        print("Consider: - Implmementing a coverage-based  re-ranking")
+
+    print()
+
+    # calc. catalog coverage
+    print("Coverage Metrics: ")
+    print("-" * 60)
+    coverage_metrics = calc_catalog_coverage(all_recommendations, available_items)
+
+    print(f"Catalog coverage: {coverage_metrics['coverage']:.2%}")
+    print(f"Items recommended: {coverage_metrics['items_recommeded']}")
+    print(f"Items never recommended: {coverage_metrics['items_never_recommended']}")
+
+    if coverage_metrics['coverage'] < 0.3:
+        print("Low coverage - many items never get recommended")
+        print("Consider: Hybrid model with content-based filtering")
+        print("Consider: Explore-exploit stragegy to surface new items")
+        
+    print()
+    print("=" * 60)
+
+    return {
+        'accuracy': metrics,
+        'diversity': diversity_metrics,
+        'coverage': coverage_metrics
+    }       
+
+# Metrics tracker over time.
+
+class MetricsTracker:
+    """Tracks eval metrics over time to monitor model performance."""
+
+    def __init__(self, log_file='metrics_log.json'):
+        self.log_file = log_file
+
+    def log_evaluation(self, model_name, model_version, metrics, notes=""):
+        
+        """
+        Args: 
+            model_name: identifier for the model.
+            model_version: version or iteration number.
+            metrics: dict of eval metrics.
+            notes: any obseervation or changes in this iteration.
+        """
+
+        entry = {
+            'timestamp': datetime.now().isoformat(),
+            'model_name': model_name,
+            'model_version': model_version,
+            'metrics': metrics,
+            'notes': notes
+        }
+
+        with open(self.log_file, 'a') as f:
+            f.write(json.dumps(entry) + '\n')
+
+    def get_metric_history(self, metric_name):
+        # historical values for a specific metric.
+        # useful for plotting trends over time.
+
+        history = []
+
+        try:
+            with open(self.log_file, 'r') as f:
+                for line in f:
+                    entry = json.loads(line)
+                    if metric_name in entry['metrics']:
+                        history.append({'timestamp': entry['timestamp'], 
+                                        'value': entry['metrics'][metric_name], 
+                                        'model_version': entry['model_version'] })
+        except FileNotFoundError:
+            print(f"No log file found at {self.log_file}")
+
+        return history
+    
+# Setting Up Continuous Evaluation
+
+def run_compile_eval_pipeline(interactions_df, model_class, model_param):
+    # end-to-end eval pipeline you can run at any time.
+    """
+    This function: 
+        1. Splits data temporally
+        2. Trains the model
+        3. Evaluates the model
+        4. Generates a report
+        5. Logs the metrics
+        6. Provides actionable insights.
+    """
+
+    print("Starting evaluation pipeline...")
+    print("Splitting data...")
+    train_data, val_data, test_data = create_temporal_split(
+        interactions_df,
+        test_weeks=2,
+        validation_weeks=1
+
+    )
+
+    print("\nTraining model...")
+    model = model_class(**model_param)
+    model.fit(train_data)
+
+    print("\nRunning eval...")
+    available_items = set(interactions_df['item_id'].unique())
+    report = generate_eval_report(model, train_data, test_data, available_items)
+
+    print("\nLogging results...")
+    tracker = MetricsTracker()
+    tracker.log_evaluation(
+        model_name=model_class.__name__,
+        model_version=datetime.now().strftime("%Y%m%d"),
+        metrics={
+            **report['accuracy_metrics'],
+            **report['diversity_metrics'],
+            **report['coverage_metrics']
+        },
+        notes="baseline eval with temporal splits"
+    )
+
+    return model, report
