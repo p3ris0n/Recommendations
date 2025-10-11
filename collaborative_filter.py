@@ -1,3 +1,4 @@
+import kagglehub
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
@@ -260,3 +261,59 @@ class RecommenderEvaluator:
 
         return summary
 
+def calc_recommendation_diversity(all_recommendations):
+    
+    """
+        Maximum enthropy ensures the recommendations are evenly distrubuted across all itmes.
+    """
+    # counts how many times each items was recommended.
+    item_counts = {}
+    total_recommendations = 0
+
+    for recommendations in all_recommendations:
+        for item in recommendations:
+            item_counts[item] = item_counts.get(item, 0) + 1
+            total_recommendations += 1
+
+    entropy = 0
+    for count in item_counts.values():
+        probability = count / total_recommendations
+        if probability > 0:
+            entropy -= probability * np.log2(probability)
+
+    max_entropy = np.log2(len(item_counts))
+    normalized_entropy = entropy / max_entropy if max_entropy > 0 else 0
+
+    return {
+        'entropy': entropy,
+        'normalized_entropy': normalized_entropy,
+        'unique_items_recommend': len(item_counts),
+        'gini_coefficient': calc_gini(list(item_counts.values()))
+    }
+
+def calc_gini(counts):
+    """
+    Calculate Gini coefficient to measure inequality in recommendations.
+    
+    Gini = 0 means perfect equality (all items recommended equally)
+    Gini = 1 means perfect inequality (all recommendations for one item)
+    
+    For food waste, you want a lower Gini coefficient.
+    """
+    counts = np.array(sorted(counts))
+    n = len(counts)
+    index = np.array(1, n + 1)
+    return (2 * np.sum(index * counts)) / (n * np.sum(counts)) - (n - 1) / n
+
+def calc_catalog_coverage(all_recommendations, total_available_itmes):
+    recommended_items = set()
+    for recommendations in all_recommendations:
+        recommended_items.update(recommendations)
+
+    coverage = len(recommended_items)/len(total_available_itmes)
+
+    return {
+        'coverage': coverage,
+        'items_recommeded': len(recommended_items),
+        'items_never_recommended': len(total_available_itmes) - len(recommended_items)
+    }

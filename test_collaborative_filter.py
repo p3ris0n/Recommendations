@@ -256,7 +256,276 @@ def test_complete_evaluation_pipeline():
     #
     return True
 
+# ==============================================================================
+# STEP 5: FOOD WASTE SPECIFIC METRICS (Diversity & Coverage)
+# ==============================================================================
+
+def calculate_recommendation_diversity(all_recommendations):
+    """
+    Measure how diverse recommendations are across items using entropy.
+    High diversity = recommendations spread evenly across items.
+    Low diversity = recommendations concentrated on few items.
+    """
+    item_counts = {}
+    total_recommendations = 0
+    
+    for recommendations in all_recommendations:
+        for item in recommendations:
+            item_counts[item] = item_counts.get(item, 0) + 1
+            total_recommendations += 1
+    
+    # Calculate entropy
+    entropy = 0
+    for count in item_counts.values():
+        probability = count / total_recommendations
+        if probability > 0:
+            entropy -= probability * np.log2(probability)
+    
+    # Normalize by maximum possible entropy
+    max_entropy = np.log2(len(item_counts)) if len(item_counts) > 0 else 0
+    normalized_entropy = entropy / max_entropy if max_entropy > 0 else 0
+    
+    return {
+        'entropy': entropy,
+        'normalized_entropy': normalized_entropy,
+        'unique_items_recommended': len(item_counts),
+        'gini_coefficient': calculate_gini(list(item_counts.values()))
+    }
+
+
+def calculate_gini(counts):
+    """
+    Calculate Gini coefficient to measure inequality in recommendations.
+    Gini = 0: perfect equality (all items recommended equally)
+    Gini = 1: perfect inequality (all recommendations for one item)
+    """
+    counts = np.array(sorted(counts))
+    n = len(counts)
+    if n == 0:
+        return 0.0
+    index = np.arange(1, n + 1)
+    return (2 * np.sum(index * counts)) / (n * np.sum(counts)) - (n + 1) / n
+
+
+def calculate_catalog_coverage(all_recommendations, total_available_items):
+    """
+    Measure what percentage of available items are being recommended.
+    Critical for food waste - items never recommended likely go to waste.
+    """
+    recommended_items = set()
+    for recommendations in all_recommendations:
+        recommended_items.update(recommendations)
+    
+    coverage = len(recommended_items) / len(total_available_items) if len(total_available_items) > 0 else 0
+    
+    return {
+        'coverage': coverage,
+        'items_recommended': len(recommended_items),
+        'items_never_recommended': len(total_available_items) - len(recommended_items)
+    }
+
+
+# ==============================================================================
+# STEP 5 TEST CASE
+# ==============================================================================
+
+def test_diversity_and_coverage_metrics():
+    """
+    Test food waste specific metrics with controlled scenarios.
+    """
+    
+    print("=" * 70)
+    print("STEP 5: TESTING DIVERSITY & COVERAGE METRICS")
+    print("=" * 70)
+    print()
+    
+    # ------------------------------------------------------------------------
+    # Test Case 1: Perfect Diversity (all items recommended equally)
+    # ------------------------------------------------------------------------
+    print("Test Case 1: Perfect Diversity")
+    print("-" * 70)
+    
+    # 3 users, each gets 3 different items (all 9 items used once)
+    perfect_diversity_recs = [
+        ['item_A', 'item_B', 'item_C'],
+        ['item_D', 'item_E', 'item_F'],
+        ['item_G', 'item_H', 'item_I']
+    ]
+    
+    diversity_metrics = calculate_recommendation_diversity(perfect_diversity_recs)
+    
+    print(f"Normalized Entropy: {diversity_metrics['normalized_entropy']:.4f}")
+    print(f"Gini Coefficient: {diversity_metrics['gini_coefficient']:.4f}")
+    print(f"Unique Items Recommended: {diversity_metrics['unique_items_recommended']}")
+    
+    # Perfect diversity should have normalized entropy = 1.0 and Gini ≈ 0
+    assert diversity_metrics['normalized_entropy'] > 0.99, "Perfect diversity should have entropy ≈ 1.0"
+    assert diversity_metrics['gini_coefficient'] < 0.01, "Perfect diversity should have Gini ≈ 0"
+    assert diversity_metrics['unique_items_recommended'] == 9, "Should recommend 9 unique items"
+    
+    print("✓ Perfect diversity case validated")
+    print()
+    
+    # ------------------------------------------------------------------------
+    # Test Case 2: Poor Diversity (concentrated recommendations)
+    # ------------------------------------------------------------------------
+    print("Test Case 2: Poor Diversity (Popular Item Bias)")
+    print("-" * 70)
+    
+    # All 3 users get mostly the same popular items
+    # Make the recommendations even more skewed toward fewer items
+    poor_diversity_recs = {
+        'user1': ['item_A', 'item_A', 'item_A', 'item_A', 'item_A', 'item_A', 'item_A', 'item_B'],
+        'user2': ['item_A', 'item_A', 'item_A', 'item_A', 'item_A', 'item_A', 'item_A', 'item_B'],
+        'user3': ['item_A', 'item_A', 'item_A', 'item_A', 'item_A', 'item_A', 'item_A', 'item_B'],
+        'user4': ['item_A', 'item_A', 'item_A', 'item_A', 'item_A', 'item_A', 'item_A', 'item_B'],
+        'user5': ['item_A', 'item_A', 'item_A', 'item_A', 'item_A', 'item_A', 'item_A', 'item_B'],
+    }
+    
+    diversity_metrics = calculate_recommendation_diversity(poor_diversity_recs)
+    
+    print(f"Normalized Entropy: {diversity_metrics['normalized_entropy']:.4f}")
+    print(f"Gini Coefficient: {diversity_metrics['gini_coefficient']:.4f}")
+    print(f"Unique Items Recommended: {diversity_metrics['unique_items_recommended']}")
+    
+    # Poor diversity should have low entropy and high Gini
+    assert diversity_metrics['normalized_entropy'] < 0.6, "Poor diversity should have low entropy"
+    assert diversity_metrics['gini_coefficient'] > 0.5, "Poor diversity should have high Gini"
+    assert diversity_metrics['unique_items_recommended'] == 2, "Should recommend only 2 unique items"
+    
+    print("✓ Poor diversity case validated")
+    print("⚠️  This scenario means most restaurants won't get visibility")
+    print()
+    
+    # ------------------------------------------------------------------------
+    # Test Case 3: Full Coverage
+    # ------------------------------------------------------------------------
+    print("Test Case 3: Full Coverage")
+    print("-" * 70)
+    
+    # All available items get recommended to someone
+    available_items = {'item_A', 'item_B', 'item_C', 'item_D', 'item_E'}
+    full_coverage_recs = [
+        ['item_A', 'item_B'],
+        ['item_C', 'item_D'],
+        ['item_E']
+    ]
+    
+    coverage_metrics = calculate_catalog_coverage(full_coverage_recs, available_items)
+    
+    print(f"Coverage: {coverage_metrics['coverage']:.2%}")
+    print(f"Items Recommended: {coverage_metrics['items_recommended']}")
+    print(f"Items Never Recommended: {coverage_metrics['items_never_recommended']}")
+    
+    assert coverage_metrics['coverage'] == 1.0, "Should have 100% coverage"
+    assert coverage_metrics['items_recommended'] == 5, "All 5 items should be recommended"
+    assert coverage_metrics['items_never_recommended'] == 0, "No items should be left out"
+    
+    print("✓ Full coverage case validated")
+    print("✓ All surplus food gets visibility!")
+    print()
+    
+    # ------------------------------------------------------------------------
+    # Test Case 4: Poor Coverage
+    # ------------------------------------------------------------------------
+    print("Test Case 4: Poor Coverage")
+    print("-" * 70)
+    
+    # Only 2 out of 10 available items get recommended
+    available_items = {f'item_{i}' for i in range(10)}
+    poor_coverage_recs = [
+        ['item_0', 'item_1'],
+        ['item_0', 'item_1'],
+        ['item_1', 'item_0']
+    ]
+    
+    coverage_metrics = calculate_catalog_coverage(poor_coverage_recs, available_items)
+    
+    print(f"Coverage: {coverage_metrics['coverage']:.2%}")
+    print(f"Items Recommended: {coverage_metrics['items_recommended']}")
+    print(f"Items Never Recommended: {coverage_metrics['items_never_recommended']}")
+    
+    assert coverage_metrics['coverage'] == 0.2, "Should have 20% coverage"
+    assert coverage_metrics['items_recommended'] == 2, "Only 2 items recommended"
+    assert coverage_metrics['items_never_recommended'] == 8, "8 items never recommended"
+    
+    print("✓ Poor coverage case validated")
+    print("⚠️  80% of surplus food is invisible and likely goes to waste!")
+    print()
+    
+    # ------------------------------------------------------------------------
+    # Test Case 5: Real-World Scenario
+    # ------------------------------------------------------------------------
+    print("Test Case 5: Real-World Mixed Scenario")
+    print("-" * 70)
+    
+    # Realistic: some popular items, some variety, but not perfect
+    available_items = {f'item_{i}' for i in range(20)}
+    realistic_recs = [
+        ['item_0', 'item_1', 'item_2', 'item_3', 'item_4'],  # User 1
+        ['item_0', 'item_1', 'item_5', 'item_6', 'item_7'],  # User 2
+        ['item_0', 'item_2', 'item_8', 'item_9', 'item_10'], # User 3
+        ['item_1', 'item_3', 'item_11', 'item_12', 'item_13'], # User 4
+        ['item_0', 'item_1', 'item_14', 'item_15', 'item_16']  # User 5
+    ]
+    
+    diversity_metrics = calculate_recommendation_diversity(realistic_recs)
+    coverage_metrics = calculate_catalog_coverage(realistic_recs, available_items)
+    
+    print("Diversity Metrics:")
+    print(f"  Normalized Entropy: {diversity_metrics['normalized_entropy']:.4f}")
+    print(f"  Gini Coefficient: {diversity_metrics['gini_coefficient']:.4f}")
+    print(f"  Unique Items in Recommendations: {diversity_metrics['unique_items_recommended']}")
+    print()
+    print("Coverage Metrics:")
+    print(f"  Catalog Coverage: {coverage_metrics['coverage']:.2%}")
+    print(f"  Items Recommended: {coverage_metrics['items_recommended']} / {len(available_items)}")
+    print(f"  Items Never Recommended: {coverage_metrics['items_never_recommended']}")
+    print()
+    
+    # Validate reasonable ranges
+    assert 0.5 < diversity_metrics['normalized_entropy'] < 1.0, "Should have moderate to good diversity"
+    assert 0 < diversity_metrics['gini_coefficient'] < 0.7, "Should have some but not extreme inequality"
+    assert coverage_metrics['coverage'] > 0.5, "Should cover more than 50% of catalog"
+    
+    print("✓ Real-world scenario validated")
+    print()
+    
+    # ------------------------------------------------------------------------
+    # Interpretation Guide
+    # ------------------------------------------------------------------------
+    print("=" * 70)
+    print("INTERPRETATION GUIDE FOR UKFOODSAVER")
+    print("=" * 70)
+    print()
+    print("Normalized Entropy (0-1):")
+    print("  • 0.8-1.0: Excellent diversity - recommendations spread evenly")
+    print("  • 0.5-0.8: Good diversity - reasonable variety")
+    print("  • 0.0-0.5: Poor diversity - concentrated on few items")
+    print()
+    print("Gini Coefficient (0-1):")
+    print("  • 0.0-0.3: Low inequality - fair distribution")
+    print("  • 0.3-0.6: Moderate inequality - some concentration")
+    print("  • 0.6-1.0: High inequality - heavily concentrated")
+    print()
+    print("Catalog Coverage (0-1):")
+    print("  • 0.7-1.0: Excellent - most restaurants get visibility")
+    print("  • 0.4-0.7: Moderate - many items still invisible")
+    print("  • 0.0-0.4: Poor - majority of surplus food not recommended")
+    print()
+    print("For food waste reduction, aim for:")
+    print("  ✓ Normalized Entropy > 0.7")
+    print("  ✓ Gini Coefficient < 0.4")
+    print("  ✓ Coverage > 0.6")
+    print()
+    print("=" * 70)
+    print("ALL STEP 5 TESTS PASSED! ✓")
+    print("=" * 70)
+    
+    return True
+
 
 # Run the comprehensive test
 if __name__ == "__main__":
     test_complete_evaluation_pipeline()
+    test_diversity_and_coverage_metrics()
