@@ -1,4 +1,4 @@
-import kagglehub
+import os
 import json
 import pandas as pd
 import numpy as np
@@ -11,23 +11,31 @@ from collections import defaultdict
 
 
 # sample data: (user_id, item_id, rating)
-# rating system: 1.0 for purchased and 0.0 for not-purchased.
+# rating system: 5-point scale system
 
-data = {
-    'user_id' : ['Mike', 'Jane', 'Alex', 'Anne'],
-    'item_id' : ['Burger', 'Pizza', 'Salad', 'Pizza'],
-    'rating' : [1.0, 1.0, 0.0, 1.0]
-}
 
-train_data = pd.DataFrame(data)
+train_data = pd.read_csv('./data/UKFoodSavers_testdata.csv', nrows=20)
+
 print("Our Raw Data: ")
 print(train_data)
 
-reader = Reader(rating_scale = (0, 1)) # reader is needed to parse the dataframe. 
+print("First few rows as read by pandas: ")
+print(train_data.head())
+
+print("Checking the shape of the data: ")
+print("\nDataFrame shape: ", train_data.shape)
+print("\nColumn data types: ")
+print(train_data.dtypes)
+
+reader = Reader(rating_scale = (1, 5)) # reader is needed to parse the dataframe. 
 
 dataset = Dataset.load_from_df(train_data[['user_id', 'item_id', 'rating']], reader)
 
 # build the training set.
+trainset = dataset.build_full_trainset()
+
+reader = Reader(rating_scale=(1, 5))
+dataset = Dataset.load_from_df(train_data[['user_id', 'item_id', 'rating']], reader)
 trainset = dataset.build_full_trainset()
 
 # using the SVD algo.
@@ -35,14 +43,22 @@ model = SVD()
 model.fit(trainset)
 print("Model trained successfully!")
 
-# function to get top-n recommendations.
+# function to get top-n recommendatiens.
 
 def get_top_recommendations(user_id, trainset, model, n=5):
     # get a list of all items.
     all_items = trainset.all_items()
 
     # get user-rated items.
-    user_items = set([trainset.to_raw_iid(item_id) for [user, item_id] in trainset.ur[trainset.to_inner_uid(user_id)]])
+    # user_items = set([trainset.to_raw_iid(item_id) for [user, item_id] in trainset.ur[trainset.to_inner_uid(user_id)]])
+    user_inner_id = trainset.to_inner_uid(user_id)
+
+    user_items = set()
+    for user, item_id in trainset.ur[user_inner_id]:
+        if isinstance(item_id, int):
+            raw_item_id = trainset.to_raw_iid(item_id)
+            user_items.add(raw_item_id)
+
 
     # predictions.
     predictions = []
@@ -57,7 +73,7 @@ def get_top_recommendations(user_id, trainset, model, n=5):
     return predictions[:n] # returns top-n recs.
 
 print("\nGenerate recommendations for each user: ")
-for user_id in data['user_id']:
+for user_id in train_data['user_id']:
     recommendations = get_top_recommendations(user_id, trainset, model, n=1)
     print(f"\nTop Recommnedations for {user_id}")
     for item, rating in recommendations:

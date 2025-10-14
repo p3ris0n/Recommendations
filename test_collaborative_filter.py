@@ -36,8 +36,9 @@ def test_complete_evaluation_pipeline():
     np.random.seed(42)  # For reproducible results
     
     # Generate synthetic user-item interactions with timestamps
-    users = ['User_1', 'User_2', 'User_3', 'User_4', 'User_5', 'User_6']
-    items = ['Burger', 'Pizza', 'Salad', 'Pasta', 'Soup', 'Sandwich', 'Fries', 'Soda', 'Coffee', 'Tea']
+    train_data = pd.read_csv('./data/UKFoodSavers_testdata.csv')
+    users = Dataset.load_from_df(train_data[['user_id']], reader)
+    items = Dataset.load_from_df(train_data[['item_id']], reader)
     
     interactions = []
     base_date = datetime(2024, 1, 1)
@@ -102,7 +103,7 @@ def test_complete_evaluation_pipeline():
     print("-" * 70)
     
     # Convert to Surprise format
-    reader = Reader(rating_scale=(0, 1))
+    reader = Reader(rating_scale=(1, 5))
     train_surprise = Dataset.load_from_df(
         train_data[['user_id', 'item_id', 'rating']], 
         reader
