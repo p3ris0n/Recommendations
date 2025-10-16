@@ -41,7 +41,7 @@ def test_data_loading():
         print(f"  - Rating range: {data['rating'].min()} to {data['rating'].max()}")
         return data
     except Exception as e:
-        print(f"✗ Data loading failed: {e}")
+        print(f" Data loading failed: {e}")
         return None
 
 def test_recommendation_generation(trainset, model, sample_users):
