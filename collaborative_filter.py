@@ -12,7 +12,7 @@ from collections import defaultdict
 # sample data: (user_id, item_id, rating)
 # rating system: 5-point scale system
 
-train_data = pd.read_csv('UKFoodSavers_testdata.csv', nrows=20)
+train_data = pd.read_csv('data/UKFS_testdata.csv', nrows=20)
 
 print(f"Unique users: {train_data['user_id'].nunique()}")
 print(f"Unique items: {train_data['item_id'].nunique()}")
@@ -22,7 +22,7 @@ if train_data['item_id'].nunique() < 5:
     print("Warning: Not enough unique items for meaningful recommendations.")
 
 def load_data_correctly():
-    df = pd.read_csv('UKFoodSavers_testdata.csv')
+    df = pd.read_csv('data/UKFS_testdata.csv')
 
     print("Actual columns in file: ", df.columns.tolist())
 
@@ -37,11 +37,11 @@ def load_data_correctly():
 
 train_data = load_data_correctly()
 
-reader = Reader(rating_scale = (1, 5)) # reader is needed to parse the dataframe. 
+reader = Reader(rating_scale = (0, 2)) # reader is needed to parse the dataframe. 
 dataset = Dataset.load_from_df(train_data[['user_id', 'item_id', 'rating']], reader)
 trainset = dataset.build_full_trainset()
 
-reader = Reader(rating_scale=(1, 5))
+reader = Reader(rating_scale=(0, 2))
 dataset = Dataset.load_from_df(train_data[['user_id', 'item_id', 'rating']], reader)
 trainset = dataset.build_full_trainset()
 
@@ -53,8 +53,8 @@ print("Model trained successfully!")
 # function to get top-n recommendatiens.
 
 def get_top_recommendations(user_id, trainset, model, n=5):
-    print(f"DEBUG: Generating recommendations for user: {user_id}")
-    print(f"DEBUG: Total items in trainset: {len(trainset.all_items())}")
+    print(f" Generating recommendations for user: {user_id}")
+    print(f" Total items in trainset: {len(trainset.all_items())}")
 
     # get a list of all items.
     all_items = trainset.all_items()
@@ -130,12 +130,12 @@ def calc_precision_at_k(recommendations, actual_interactions, k=10):
     # calculates precision at k. what fraction of recommended items were actually relevant?
 
     """
-    Args: 
+    args: 
         recommendations: List of recommended items IDs, ordered by relevance
         actual_interactions: Set of item IDs that the user actually interacted with.
         k: Number of top recommendations to consider.
     
-    Returns:
+    returns:
         float between 0 and 1, where 1 means all recommended items were relevant. 
     
     """
@@ -152,18 +152,18 @@ def calc_recall_at_k(recommendations, actual_interactions, k=10):
     # calculates recall at k. what fraction of relevant items were recommended?
 
     """
-    Args: 
+    args: 
         recommendations: List of recommended items IDs, ordered by relevance
         actual_interactions: Set of item IDs that the user actually interacted with.
         k: Number of top recommendations to consider.
     
-    Returns:
+    returns:
         float between 0 and 1, where 1 means all relevant items were recommended. 
 
         This tells you how complete your recommendations are. You might have a high precision
         but if your recall is low, it means you're missing a lot of relevant items.
-    
     """
+
     top_k = recommendations[:k]
 
     relevant_and_recommended = set(top_k) & set(actual_interactions)
@@ -177,17 +177,15 @@ def calc_recall_at_k(recommendations, actual_interactions, k=10):
 def calc_f1_score(precision, recall):
     # calculates the harmonic mean of precision and recall.
 
-    """
-    Args:
+    """ args:
         precision: Precision value
         recall: Recall value
     
-    Returns:
+    returns:
         float between 0 and 1, where 1 means perfect precision and recall.
 
         the f1 score balances both metrics, you can't get a high f1 score without both a good
         precision score and a good recall score.
-
     """
 
     if precision + recall == 0:
@@ -195,7 +193,7 @@ def calc_f1_score(precision, recall):
     
     return 2 * (precision * recall) / (precision + recall)
 
-# Implementing Mean Average Precision.
+# implementing Mean Average Precision.
 # this gives a more nuanced view of recommendation quality 
 # by considering the rank of relevant items and putting those first.
 # It's more sophisticated because it considers the order of recommendations.
@@ -249,14 +247,11 @@ class RecommenderEvaluator:
 
     def evaluate(self, trainset, model, test_data):
 
-        """
-            Runs a complete eval of the model.
-
-            Args: 
+        """ runs a complete eval of the model.
+            args: 
                 model: your trained rec model.
                 test_data: dataframe with cols [user_id, item_id, timestamps]
-
-            Returns
+            returns
                 Dict of metrics
         """
         # group test data by user to see what each user interacted with.
@@ -299,10 +294,9 @@ class RecommenderEvaluator:
 
 def calc_recommendation_diversity(all_recommendations):
     
-    """
-        Maximum enthropy ensures the recommendations are evenly distrubuted across all itmes.
-    """
+    # maximum enthropy ensures the recommendations are evenly distrubuted across all itmes
     # counts how many times each items was recommended.
+
     item_counts = {}
     total_recommendations = 0
 
@@ -336,13 +330,12 @@ def calc_recommendation_diversity(all_recommendations):
     }
 
 def calc_gini(counts):
-    """
-    Calculate Gini coefficient to measure inequality in recommendations.
+    """ calculate Gini coefficient to measure inequality in recommendations.
     
-    Gini = 0 means perfect equality (all items recommended equally)
-    Gini = 1 means perfect inequality (all recommendations for one item)
+    gini = 0 means perfect equality (all items recommended equally)
+    gini = 1 means perfect inequality (all recommendations for one item)
     
-    For food waste, you want a lower Gini coefficient.
+    for food waste, you want a lower Gini coefficient.
     """
     counts = np.array(sorted(counts))
     n = len(counts)
@@ -460,7 +453,7 @@ class MetricsTracker:
     def log_evaluation(self, model_name, model_version, metrics, notes=""):
         
         """
-        Args: 
+        args: 
             model_name: identifier for the model.
             model_version: version or iteration number.
             metrics: dict of eval metrics.
