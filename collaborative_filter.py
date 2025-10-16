@@ -9,29 +9,36 @@ from surprise import Dataset, Reader
 from surprise import SVD
 from collections import defaultdict
 
-
 # sample data: (user_id, item_id, rating)
 # rating system: 5-point scale system
 
+train_data = pd.read_csv('UKFoodSavers_testdata.csv', nrows=20)
 
-train_data = pd.read_csv('./data/UKFoodSavers_testdata.csv', nrows=20)
+print(f"Unique users: {train_data['user_id'].nunique()}")
+print(f"Unique items: {train_data['item_id'].nunique()}")
+print(f"Rating range: {train_data['rating'].min()} to {train_data['rating'].max()}")
 
-print("Our Raw Data: ")
-print(train_data)
+if train_data['item_id'].nunique() < 5:
+    print("Warning: Not enough unique items for meaningful recommendations.")
 
-print("First few rows as read by pandas: ")
-print(train_data.head())
+def load_data_correctly():
+    df = pd.read_csv('UKFoodSavers_testdata.csv')
 
-print("Checking the shape of the data: ")
-print("\nDataFrame shape: ", train_data.shape)
-print("\nColumn data types: ")
-print(train_data.dtypes)
+    print("Actual columns in file: ", df.columns.tolist())
+
+    if 'user_id' not in df.columns and len(df.columns) >= 3:
+        df.columns = ['user_id', 'item_id', 'rating']
+
+    df = df.dropna(subset=['user_id', 'item_id', 'rating'])
+    df['rating'] = pd.to_numeric(df['rating'], errors='coerce')
+    df = df.dropna(subset=['rating'])
+
+    return df
+
+train_data = load_data_correctly()
 
 reader = Reader(rating_scale = (1, 5)) # reader is needed to parse the dataframe. 
-
 dataset = Dataset.load_from_df(train_data[['user_id', 'item_id', 'rating']], reader)
-
-# build the training set.
 trainset = dataset.build_full_trainset()
 
 reader = Reader(rating_scale=(1, 5))
@@ -46,6 +53,9 @@ print("Model trained successfully!")
 # function to get top-n recommendatiens.
 
 def get_top_recommendations(user_id, trainset, model, n=5):
+    print(f"DEBUG: Generating recommendations for user: {user_id}")
+    print(f"DEBUG: Total items in trainset: {len(trainset.all_items())}")
+
     # get a list of all items.
     all_items = trainset.all_items()
 
@@ -73,11 +83,20 @@ def get_top_recommendations(user_id, trainset, model, n=5):
     return predictions[:n] # returns top-n recs.
 
 print("\nGenerate recommendations for each user: ")
+
+# CAP: Test only the first "n" users
+user_count = 0
+
 for user_id in train_data['user_id']:
+    if user_count >= 20:
+        break
     recommendations = get_top_recommendations(user_id, trainset, model, n=1)
     print(f"\nTop Recommnedations for {user_id}")
     for item, rating in recommendations:
         print(f"- {item}: predicted rating = {rating:.3f}")
+    user_count += 1
+
+print(f"\nCapped to the first {user_count} users.")
 
 
 def create_temporal_split(interactions_df, test_weeks=2, validation_weeks=1):
@@ -380,9 +399,11 @@ def generate_eval_report(model, trainset, train_data, test_data, available_items
 
     for user in test_users:
         try:
-            recs = model.predict(user, n_recommnedations=20)
-            all_recommendations.append(recs)
-        except:
+            recs = get_top_recommendations(user, trainset, model, n=20)
+            if recs:
+                item_ids = [item for item, _ in recs] # stores only the item ids not tuples, diversity & coverage metrics.
+            all_recommendations.append(item_ids)
+        except Exception as e:
             continue
 
     
