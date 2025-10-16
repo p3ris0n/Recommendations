@@ -82,7 +82,7 @@ def get_top_recommendations(user_id, trainset, model, n=5):
 
     return predictions[:n] # returns top-n recs.
 
-print("\nGenerate recommendations for each user: ")
+print("\nGenerate recommendations for each user:")
 
 # CAP: Test only the first "n" users
 user_count = 0
