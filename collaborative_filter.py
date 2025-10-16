@@ -535,3 +535,51 @@ def run_compile_eval_pipeline(interactions_df, model_class, model_param):
     )
 
     return model, report
+
+def analyze_cold_start_severity(data):
+    user_interactions_counts = data.groupby('user_id').size()
+    items_interactions_counts = data.groupby('item_id').size()
+
+    n_users = data['user_id'].nunique()
+    n_items = data['item_id'].nunique()
+
+    n_iteractions = len(data)
+    possible_interactions = n_users * n_items
+    sparsity = 1 - (n_iteractions / possible_interactions)
+
+    print(f"Data Sparsity: {sparsity: .2%}")
+    print(f"Cold users (s2 interactions): {(user_interactions_counts <= 2).sum()}")
+    print(f"Cold items (s2 interactions): {(items_interactions_counts <= 2).sum()}")
+
+    return sparsity
+
+def build_popularity_baseline(data, top_n=20):
+    """
+        This is for new users with cold starts, it recommends the most popular items.
+    """
+
+    item_popularity = data.groupby('item_id').agg({
+        'rating': ['count', 'mean']
+    }).reset_index()
+
+    item_popularity.columns = ['item_id', 'interaction_count', 'avg_rating']
+
+    # calc popularity score.
+    max_interactions = item_popularity['interaction_count'].max()
+    max_rating = item_popularity['avg_rating'].max()
+
+    if max_rating > 0:
+        item_popularity['popularity_score'] = (
+            0.7 * (item_popularity['iteraction_count'] / max_interactions) +
+            0.3 * (item_popularity['avg_rating'] / max_rating)
+        )
+    
+    else:
+        item_popularity['popularity_score'] = (
+            item_popularity['interaction_count'] / max_interactions
+        )
+
+    item_pouplarity = item_popularity.sort_values('popularity_score', ascending=False)
+
+    return item_popularity
+
