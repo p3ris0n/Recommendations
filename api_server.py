@@ -440,12 +440,11 @@ async def get_statistics():
 # STARTUP EVENT
 # ============================================================================
 
-@app.on_event("startup")
-async def startup_event():
-    """
-    Initialize model on startup.
-    In production, load from saved model or train on existing data.
-    """
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Startup
     print("=" * 70)
     print("UKFoodSaver Recommendations API Starting...")
     print("=" * 70)
@@ -504,6 +503,19 @@ async def startup_event():
     print(f"  Health check: /health")
     print(f"  Documentation: /docs")
     print("=" * 70)
+    
+    yield  # This separates startup from shutdown
+    
+    # Shutdown (if needed)
+    print("Shutting down...")
+
+# Update the FastAPI app initialization
+app = FastAPI(
+    title="UKFoodSaver Recommendations API",
+    description="Recommendation system for food marketplace platform",
+    version="1.0.0",
+    lifespan=lifespan
+)
 
 # ============================================================================
 # RUN SERVER
