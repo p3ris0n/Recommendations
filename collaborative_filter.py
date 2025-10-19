@@ -52,8 +52,8 @@ print("Model trained successfully!")
 
 # function to get top-n recommendatiens.
 
-def get_top_recommendations(user_id, trainset, model, n=5):
-    print(f" Generating recommendations for user: {user_id}")
+def get_top_recommendations(user_id, trainset, model, data, n=5):
+    print(f"\nGenerating recommendations for user: {user_id}")
     print(f" Total items in trainset: {len(trainset.all_items())}")
 
     # get a list of all items.
@@ -82,7 +82,7 @@ def get_top_recommendations(user_id, trainset, model, n=5):
 
     return predictions[:n] # returns top-n recs.
 
-print("\nGenerate recommendations for each user:")
+print("\nGenerate recommendations for each user: ")
 
 # CAP: Test only the first "n" users
 user_count = 0
@@ -90,7 +90,7 @@ user_count = 0
 for user_id in train_data['user_id']:
     if user_count >= 20:
         break
-    recommendations = get_top_recommendations(user_id, trainset, model, n=1)
+    recommendations = get_top_recommendations(user_id, trainset, model, train_data, n=1)
     print(f"\nTop Recommnedations for {user_id}")
     for item, rating in recommendations:
         print(f"- {item}: predicted rating = {rating:.3f}")
@@ -198,7 +198,7 @@ def calc_f1_score(precision, recall):
 # by considering the rank of relevant items and putting those first.
 # It's more sophisticated because it considers the order of recommendations.
 
-def calc_average_precison(recommendations, actual_interactions, k=10):
+def calc_average_precision(recommendations, actual_interactions, k=10):
     top_k = recommendations[:k]
 
     if len(actual_interactions) == 0:
@@ -225,7 +225,7 @@ def calc_mean_avg_precision(all_recommendations, all_actual_interactions, k=10):
     avg_precisions = []
 
     for user_recs, user_actual in zip(all_recommendations, all_actual_interactions):
-        ap = calc_average_precison(user_recs, user_actual, k)
+        ap = calc_average_precision(user_recs, user_actual, k)
         avg_precisions.append(ap)
 
     return np.mean(avg_precisions)
@@ -266,7 +266,7 @@ class RecommenderEvaluator:
         # evaluate for each user who has test interactions
         for user_id, actual_items in actual_interactions.items():
             try:
-                recs = get_top_recommendations(user_id, trainset, model, n=max(self.k_values))
+                recs = get_top_recommendations(user_id, trainset, model, test_data, n=max(self.k_values))
                 recommendations = [item for item, _ in recs] # extracts just items_id
                
             except: # handles coldstart users who weren't in the training data.
@@ -276,7 +276,7 @@ class RecommenderEvaluator:
                 precision = calc_precision_at_k(recommendations, actual_items, k)
                 recall = calc_recall_at_k(recommendations, actual_items, k)
                 f1 = calc_f1_score(precision, recall)
-                ap = calc_average_precison(recommendations, actual_items, k)
+                ap = calc_average_precision(recommendations, actual_items, k)
 
                 results[k]['precision'].append(precision)
                 results[k]['recall'].append(recall)
@@ -349,17 +349,17 @@ def calc_gini(counts):
     
     return (numerator / denominator) - (n + 1) / n
 
-def calc_catalog_coverage(all_recommendations, total_available_itmes):
+def calc_catalog_coverage(all_recommendations, total_available_items):
     recommended_items = set()
     for recommendations in all_recommendations:
         recommended_items.update(recommendations)
 
-    coverage = len(recommended_items)/len(total_available_itmes)
+    coverage = len(recommended_items)/len(total_available_items) if len(total_available_items) > 0 else 0.0
 
     return {
         'coverage': coverage,
-        'items_recommeded': len(recommended_items),
-        'items_never_recommended': len(total_available_itmes) - len(recommended_items)
+        'items_recommended': len(recommended_items),
+        'items_never_recommended': len(total_available_items) - len(recommended_items)
     }
 
 # Actionable Reports
@@ -392,10 +392,10 @@ def generate_eval_report(model, trainset, train_data, test_data, available_items
 
     for user in test_users:
         try:
-            recs = get_top_recommendations(user, trainset, model, n=20)
+            recs = get_top_recommendations(user, trainset, model, train_data, n=20)
             if recs:
                 item_ids = [item for item, _ in recs] # stores only the item ids not tuples, diversity & coverage metrics.
-            all_recommendations.append(item_ids)
+                all_recommendations.append(item_ids)
         except Exception as e:
             continue
 
@@ -425,7 +425,7 @@ def generate_eval_report(model, trainset, train_data, test_data, available_items
     coverage_metrics = calc_catalog_coverage(all_recommendations, available_items)
 
     print(f"Catalog coverage: {coverage_metrics['coverage']:.2%}")
-    print(f"Items recommended: {coverage_metrics['items_recommeded']}")
+    print(f"Items recommended: {coverage_metrics['items_recommended']}")
     print(f"Items never recommended: {coverage_metrics['items_never_recommended']}")
 
     if coverage_metrics['coverage'] < 0.3:
@@ -519,7 +519,7 @@ def run_compile_eval_pipeline(interactions_df, model_class, model_param):
 
     print("\nRunning eval...")
     available_items = set(interactions_df['item_id'].unique())
-    report = generate_eval_report(model, train_data, test_data, available_items)
+    report = generate_eval_report(model, trainset, train_data, test_data, available_items)
 
     print("\nLogging results...")
     tracker = MetricsTracker()
@@ -548,8 +548,8 @@ def analyze_cold_start_severity(data):
     sparsity = 1 - (n_iteractions / possible_interactions)
 
     print(f"Data Sparsity: {sparsity: .2%}")
-    print(f"Cold users (s2 interactions): {(user_interactions_counts <= 2).sum()}")
-    print(f"Cold items (s2 interactions): {(items_interactions_counts <= 2).sum()}")
+    print(f"Cold users (<2 interactions): {(user_interactions_counts <= 2).sum()}")
+    print(f"Cold items (<2 interactions): {(items_interactions_counts <= 2).sum()}")
 
     return sparsity
 
@@ -570,16 +570,286 @@ def build_popularity_baseline(data, top_n=20):
 
     if max_rating > 0:
         item_popularity['popularity_score'] = (
-            0.7 * (item_popularity['iteraction_count'] / max_interactions) +
+            0.7 * (item_popularity['interaction_count'] / max_interactions) +
             0.3 * (item_popularity['avg_rating'] / max_rating)
         )
-    
     else:
         item_popularity['popularity_score'] = (
             item_popularity['interaction_count'] / max_interactions
         )
 
-    item_pouplarity = item_popularity.sort_values('popularity_score', ascending=False)
+    popularity_sorted = item_popularity.sort_values('popularity_score', ascending=False)
 
-    return item_popularity
+    return popularity_sorted
 
+def get_popularity_recommendations(popularity_df, n=10, exclude_items=None):
+    # gets top n recs
+    if exclude_items is None:
+        exclude_items = set()
+
+    available = popularity_df[~popularity_df['item_id'].isin(exclude_items)]
+    top_items = available.head(n)[['item_id', 'popularity_score']].values.tolist()
+
+    return [(item, score) for item, score in top_items]
+
+def get_hybrid_recommendations(user_id, trainset, model, popularity_df, min_interactions=3, n=10):
+    """
+        handles coldstart users:
+            1. warm users: collaborative filtering
+            2. lukewarm users: blend collaborative filter & popularity
+            3. cold users: popularity-based only
+    """
+
+    try:
+        user_inner_id = trainset.to_inner_uid(user_id)
+        user_interactions = len(trainset.ur[user_inner_id])
+
+        if user_interactions >= min_interactions:
+            # WARM USER: use collaborative filtering
+            all_items = trainset.all_items()
+            user_items = set([trainset.to_raw_iid(item_id)
+                for item_id, _ in trainset.ur[user_inner_id]])
+
+            predictions = []
+            for item_id in all_items:
+                raw_item_id = trainset.to_raw_iid(item_id)
+                if raw_item_id not in user_items:
+                    pred = model.predict(user_id, raw_item_id)
+                    predictions.append((raw_item_id, pred.est))
+
+            predictions.sort(key=lambda x: x[1], reverse=True)
+            return predictions[:n]
+
+        elif user_interactions > 0:
+            # LUKEWARM USER: Blend collaborative and popularity
+            all_items = trainset.all_items()
+            user_items = set([trainset.to_raw_iid(item_id) 
+                            for item_id, _ in trainset.ur[user_inner_id]])
+
+            cf_predictions = []
+            for item_id in all_items:
+                raw_item_id = trainset.to_raw_iid(item_id)
+                if raw_item_id not in user_items:
+                    pred = model.predict(user_id, raw_item_id)
+                    cf_predictions.append((raw_item_id, pred.est))
+
+            # Normalize CF scores to [0, 1]
+            if cf_predictions:
+                cf_scores = [score for _, score in cf_predictions]
+                min_score, max_score = min(cf_scores), max(cf_scores)
+                if max_score > min_score:
+                    cf_predictions = [(item, (score - min_score) / (max_score - min_score)) 
+                                    for item, score in cf_predictions]
+
+            # Get popularity scores
+            pop_dict = dict(zip(popularity_df['item_id'], 
+                              popularity_df['popularity_score']))
+            
+            # Blend based on interaction count
+            cf_weight = user_interactions / min_interactions
+            pop_weight = 1 - cf_weight
+            
+            blended = []
+            for item, cf_score in cf_predictions:
+                pop_score = pop_dict.get(item, 0)
+                final_score = cf_weight * cf_score + pop_weight * pop_score
+                blended.append((item, final_score))
+            
+            blended.sort(key=lambda x: x[1], reverse=True)
+            return blended[:n]
+        
+    except ValueError:
+        pass  # User not in trainset
+    
+    # COLD START USER: Use popularity only
+    return get_popularity_recommendations(popularity_df, n=n)
+
+
+def boost_fresh_items(recommendations, item_freshness, freshness_boost=0.15,
+                     freshness_days=2):
+    """Boost recently added items to give them visibility."""
+    boosted = []
+    
+    for item, score in recommendations:
+        days_old = item_freshness.get(item, 999)
+        
+        if days_old <= freshness_days:
+            boost_factor = 1 + freshness_boost * (1 - days_old / freshness_days)
+            boosted_score = score * boost_factor
+            boosted.append((item, boosted_score))
+        else:
+            boosted.append((item, score))
+    
+    boosted.sort(key=lambda x: x[1], reverse=True)
+    return boosted
+
+
+def inject_diversity_for_exploration(recommendations, all_items, explore_ratio=0.2):
+    """Replace some recommendations with random items for exploration."""
+    n_explore = int(len(recommendations) * explore_ratio)
+    n_exploit = len(recommendations) - n_explore
+    
+    final_recs = recommendations[:n_exploit]
+    
+    recommended_items = {item for item, _ in recommendations}
+    unexplored = [item for item in all_items if item not in recommended_items]
+    
+    if unexplored and n_explore > 0:
+        explore_items = np.random.choice(
+            unexplored, 
+            size=min(n_explore, len(unexplored)), 
+            replace=False
+        )
+        
+        if final_recs:
+            explore_score = final_recs[-1][1] * 0.9
+        else:
+            explore_score = 0.5
+        
+        for item in explore_items:
+            final_recs.append((item, explore_score))
+    
+    return final_recs
+
+
+def get_production_recommendations(user_id, trainset, model, data, 
+                                  available_items=None, n=10,
+                                  enable_freshness_boost=True,
+                                  enable_exploration=True,
+                                  exploration_rate=0.15):
+    """
+    Production-ready recommendation function that handles all edge cases.
+    This is what you'd use in your actual application.
+    """
+    # Build popularity baseline
+    popularity_df = build_popularity_baseline(data)
+    
+    # Get base recommendations (handles cold start)
+    try:
+        recommendations = get_hybrid_recommendations(
+            user_id, trainset, model, popularity_df,
+            min_interactions=5, n=n*3  # Buffer for filtering
+        )
+    except Exception as e:
+        print(f"Error generating recommendations: {e}")
+        recommendations = get_popularity_recommendations(popularity_df, n=n*2)
+    
+    # Apply freshness boost if enabled
+    if enable_freshness_boost:
+        item_counts = data.groupby('item_id').size()
+        item_freshness = {item: max(1, 30 - count) 
+                         for item, count in item_counts.items()}
+        
+        recommendations = boost_fresh_items(
+            recommendations, item_freshness,
+            freshness_boost=0.15, freshness_days=2
+        )
+    
+    # Filter by availability if provided
+    if available_items is not None:
+        recommendations = [(item, score) for item, score in recommendations 
+                          if item in available_items]
+    
+    # Take top N before exploration
+    recommendations = recommendations[:n]
+    
+    # Inject exploration if enabled
+    if enable_exploration and len(recommendations) > 0:
+        all_items = data['item_id'].unique().tolist()
+        recommendations = inject_diversity_for_exploration(
+            recommendations, all_items, explore_ratio=exploration_rate
+        )
+    
+    return recommendations
+
+# Test Phase 4 at the end of your file
+if __name__ == "__main__":
+    print("\n" + "="*70)
+    print("TESTING PHASE 4: COLD START HANDLING")
+    print("="*70 + "\n")
+    
+    # Load data
+    data = load_data_correctly()
+    
+    # Analyze cold start severity
+    print("Analyzing cold start severity...")
+    sparsity = analyze_cold_start_severity(data)
+    print()
+    
+    # Train model
+    print("Training model...")
+    reader = Reader(rating_scale=(0, 2))
+    dataset = Dataset.load_from_df(data[['user_id', 'item_id', 'rating']], reader)
+    trainset = dataset.build_full_trainset()
+    
+    model = SVD()
+    model.fit(trainset)
+    print("✓ Model trained\n")
+    
+    # Build popularity baseline
+    print("Building popularity baseline...")
+    popularity_df = build_popularity_baseline(data)
+    print(f"✓ Top 5 popular items:")
+    for idx, row in popularity_df.head(5).iterrows():
+        print(f"  {row['item_id']}: score {row['popularity_score']:.3f}")
+    print()
+    
+    # Test with different user types
+    print("Testing recommendations for different user types:")
+    print("-"*70)
+    
+    user_interaction_counts = data.groupby('user_id').size()
+    
+    # Find a cold user (0 interactions - if any exist in test set)
+    # Find a lukewarm user (1-4 interactions)
+    # Find a warm user (5+ interactions)
+    
+    lukewarm_users = user_interaction_counts[
+        (user_interaction_counts > 0) & (user_interaction_counts < 5)
+    ].index.tolist()
+    warm_users = user_interaction_counts[user_interaction_counts >= 5].index.tolist()
+    
+    test_users = []
+    if lukewarm_users:
+        test_users.append(('lukewarm', lukewarm_users[0]))
+    if warm_users:
+        test_users.append(('warm', warm_users[0]))
+    
+    for user_type, user_id in test_users:
+        interaction_count = user_interaction_counts[user_id]
+        print(f"\n{user_type.upper()} USER: {user_id} ({interaction_count} interactions)")
+        
+        # Test hybrid recommendations
+        recs = get_hybrid_recommendations(
+            user_id, trainset, model, popularity_df,
+            min_interactions=5, n=5
+        )
+        
+        print("Recommendations:")
+        for item, score in recs:
+            print(f"  - {item}: score = {score:.3f}")
+    
+    # Test production recommendations with all features
+    print("\n" + "="*70)
+    print("TESTING PRODUCTION RECOMMENDATIONS (with all features)")
+    print("="*70)
+    
+    if test_users:
+        test_user = test_users[0][1]
+        print(f"\nUser: {test_user}")
+        
+        prod_recs = get_production_recommendations(
+            test_user, trainset, model, data,
+            n=5,
+            enable_freshness_boost=True,
+            enable_exploration=True,
+            exploration_rate=0.2
+        )
+        
+        print("Production Recommendations:")
+        for item, score in prod_recs:
+            print(f"  - {item}: score = {score:.3f}")
+    
+    print("\n" + "="*70)
+    print("✓ PHASE 4 TESTING COMPLETED")
+    print("="*70)
